@@ -1,0 +1,42 @@
+{
+  "sheet": {
+    "width_cm": 121.92,
+    "depth_cm": 91.44,
+    "unit": "cm",
+    "origin": "rear-left corner, platform top surface",
+    "x_axis": "right",
+    "y_axis": "front (toward camera)",
+    "standing_heel_y_cm": 30.0,
+    "standing_circle_center_y_cm": 44.0
+  },
+  "markers": [
+    {
+      "id": 30,
+      "x_cm": 3.81,
+      "y_cm": 3.81,
+      "size_cm": 12.0,
+      "corner": "frame"
+    },
+    {
+      "id": 31,
+      "x_cm": 118.11,
+      "y_cm": 3.81,
+      "size_cm": 12.0,
+      "corner": "frame"
+    },
+    {
+      "id": 32,
+      "x_cm": 3.81,
+      "y_cm": 87.63,
+      "size_cm": 12.0,
+      "corner": "frame"
+    },
+    {
+      "id": 33,
+      "x_cm": 118.11,
+      "y_cm": 87.63,
+      "size_cm": 12.0,
+      "corner": "frame"
+    }
+  ]
+}

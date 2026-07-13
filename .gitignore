@@ -1,0 +1,16 @@
+# SDK build artifacts
+sdk/node_modules/
+sdk/dist/
+sdk/.vite/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*

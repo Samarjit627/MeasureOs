@@ -1,0 +1,198 @@
+import type { MarkerDetection, CameraCalibration } from '../types'
+import type { MarkerMap } from '../utils/markers'
+
+// @ts-expect-error global import for OpenCV.js loaded from CDN
+importScripts('https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0/dist/opencv.min.js')
+
+declare const cv: any
+
+let cvReady = false
+cv.onRuntimeInitialized = () => {
+  cvReady = true
+}
+
+function waitForCv(timeout = 30000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now()
+    const check = () => {
+      if (cvReady) return resolve()
+      if (Date.now() - start > timeout) return reject(new Error('OpenCV load timeout'))
+      setTimeout(check, 100)
+    }
+    check()
+  })
+}
+
+function detectMarkers(imageData: ImageData): MarkerDetection[] {
+  const src = new cv.Mat(imageData.height, imageData.width, cv.CV_8UC4)
+  src.data.set(imageData.data)
+  const gray = new cv.Mat()
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+
+  const dict = new cv.Dictionary(cv.ARUCO_DICT_4X4_50)
+  const param = new cv.DetectorParameters()
+  const corners = new cv.MatVector()
+  const ids = new cv.Mat()
+  const rejected = new cv.MatVector()
+
+  cv.detectMarkers(gray, dict, corners, ids, param, rejected)
+
+  const out: MarkerDetection[] = []
+  for (let i = 0; i < ids.rows; i++) {
+    const id = ids.intPtr(i, 0)[0]
+    const cornerMat = corners.get(i)
+    const pts: { x: number; y: number }[] = []
+    let cx = 0
+    let cy = 0
+    for (let j = 0; j < 4; j++) {
+      const x = cornerMat.floatPtr(0, j)[0]
+      const y = cornerMat.floatPtr(0, j)[1]
+      pts.push({ x, y })
+      cx += x
+      cy += y
+    }
+    out.push({ id, corners: pts, center: { x: cx / 4, y: cy / 4 } })
+    cornerMat.delete()
+  }
+
+  src.delete()
+  gray.delete()
+  dict.delete()
+  param.delete()
+  corners.delete()
+  ids.delete()
+  rejected.delete()
+
+  return out
+}
+
+function matFromPoints(points: number[][]): any {
+  const mat = new cv.Mat(points.length, points[0].length, cv.CV_64F)
+  for (let i = 0; i < points.length; i++) {
+    for (let j = 0; j < points[i].length; j++) {
+      mat.doublePtr(i, j)[0] = points[i][j]
+    }
+  }
+  return mat
+}
+
+function buildKnownMarkers(detections: MarkerDetection[], maps: { backdrop: MarkerMap; platform: MarkerMap }) {
+  const byId = (map: MarkerMap) => {
+    const dict: Record<number, MarkerMap['markers'][number]> = {}
+    for (const m of map.markers) dict[m.id] = m
+    return dict
+  }
+  const bd = byId(maps.backdrop)
+  const pf = byId(maps.platform)
+
+  const to3d = (m: MarkerMap['markers'][number], z: number) => {
+    const s = m.size_cm
+    return [
+      [m.x_cm, m.y_cm, z],
+      [m.x_cm + s, m.y_cm, z],
+      [m.x_cm + s, m.y_cm + s, z],
+      [m.x_cm, m.y_cm + s, z],
+    ]
+  }
+
+  const objectPoints: number[][] = []
+  const imagePoints: number[][] = []
+
+  for (const det of detections) {
+    const pts = det.corners.map((c) => [c.x, c.y])
+    if (bd[det.id]) {
+      objectPoints.push(...to3d(bd[det.id], 0))
+      imagePoints.push(...pts)
+    } else if (pf[det.id]) {
+      objectPoints.push(...to3d(pf[det.id], 0))
+      imagePoints.push(...pts)
+    }
+  }
+  return { objectPoints, imagePoints }
+}
+
+function refineFocalLength(
+  objectPoints: number[][],
+  imagePoints: number[][],
+  width: number,
+  height: number,
+): CameraCalibration | null {
+  const cx = width / 2
+  const cy = height / 2
+  const distCoeffs = new cv.Mat()
+  const rvec = new cv.Mat()
+  const tvec = new cv.Mat()
+  const objMat = matFromPoints(objectPoints)
+  const imgMat = matFromPoints(imagePoints)
+
+  let bestF = Math.max(width, height)
+  let bestError = Infinity
+  let bestRvec = rvec
+  let bestTvec = tvec
+
+  // Coarse grid search over focal length, then solvePnP
+  for (let f = bestF * 0.4; f <= bestF * 1.6; f += bestF * 0.1) {
+    const k = matFromPoints([
+      [f, 0, cx],
+      [0, f, cy],
+      [0, 0, 1],
+    ])
+    const success = cv.solvePnP(objMat, imgMat, k, distCoeffs, rvec, tvec, false, cv.SOLVEPNP_ITERATIVE)
+    if (success) {
+      const reproj = new cv.Mat()
+      cv.projectPoints(objMat, rvec, tvec, k, distCoeffs, reproj)
+      let err = 0
+      for (let i = 0; i < imagePoints.length; i++) {
+        const dx = reproj.data64F[i * 2] - imagePoints[i][0]
+        const dy = reproj.data64F[i * 2 + 1] - imagePoints[i][1]
+        err += Math.sqrt(dx * dx + dy * dy)
+      }
+      err /= imagePoints.length
+      if (err < bestError) {
+        bestError = err
+        bestF = f
+        bestRvec = rvec.clone()
+        bestTvec = tvec.clone()
+      }
+      reproj.delete()
+    }
+    k.delete()
+  }
+
+  objMat.delete()
+  imgMat.delete()
+  distCoeffs.delete()
+  rvec.delete()
+  tvec.delete()
+
+  if (bestError === Infinity) return null
+
+  return {
+    fx: bestF,
+    fy: bestF,
+    cx,
+    cy,
+    rvec: Array.from(bestRvec.data64F),
+    tvec: Array.from(bestTvec.data64F),
+    reprojectionError: bestError,
+  }
+}
+
+self.onmessage = async (e: MessageEvent<{ imageData: ImageData; maps?: { backdrop: MarkerMap; platform: MarkerMap } }>) => {
+  try {
+    await waitForCv()
+    const detections = detectMarkers(e.data.imageData)
+    let calibration: CameraCalibration | null = null
+    if (e.data.maps && detections.length >= 4) {
+      const { objectPoints, imagePoints } = buildKnownMarkers(detections, e.data.maps)
+      if (objectPoints.length >= 16) {
+        calibration = refineFocalLength(objectPoints, imagePoints, e.data.imageData.width, e.data.imageData.height)
+      }
+    }
+    self.postMessage({ type: 'result', detections, calibration })
+  } catch (err) {
+    self.postMessage({ type: 'error', error: (err as Error).message })
+  }
+}
+
+export {}
