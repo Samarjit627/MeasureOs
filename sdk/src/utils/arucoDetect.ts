@@ -19,7 +19,10 @@ declare global {
 let cvReady = false
 let scriptPromise: Promise<void> | null = null
 
-const CV_URL = 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0/dist/opencv.min.js'
+// NOTE: npm published version is "4.10.0-release.1", not "4.10.0" - the bare
+// "4.10.0" tag was never published, so this URL 404'd from day one (verified
+// with curl). That's the actual reason ArUco never worked, on any device.
+const CV_URL = 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.min.js'
 
 // Loaded via a dynamically-injected <script> (not a static tag in index.html)
 // so load failures (bad network, CDN blocked, ngrok hiccup) are caught
