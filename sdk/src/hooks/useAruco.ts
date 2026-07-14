@@ -12,8 +12,22 @@ export function useAruco() {
   const [detections, setDetections] = useState<MarkerDetection[]>([])
   const [calibration, setCalibration] = useState<CameraCalibration | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const errorRef = useRef<string | null>(null)
   const mapsRef = useRef<{ backdrop: MarkerMap; platform: MarkerMap } | null>(null)
   const busyRef = useRef(false)
+
+  const setPersistentError = useCallback((msg: string | null) => {
+    if (msg === errorRef.current) return
+    errorRef.current = msg
+    setError(msg)
+  }, [])
+
+  const clearError = useCallback(() => {
+    if (errorRef.current) {
+      errorRef.current = null
+      setError(null)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -24,19 +38,17 @@ export function useAruco() {
       .then(() => {
         if (!mounted) return
         if (!arucoModuleAvailable()) {
-          // Known gap: no published @techstark/opencv-js build includes
-          // ArUco. Report once, don't keep polling into a repeated crash.
-          setError('ArUco module unavailable in this OpenCV build (marker detection disabled, not required to capture)')
+          setPersistentError('ArUco module unavailable in this OpenCV build (marker detection disabled, not required to capture)')
           setSupported(false)
           return
         }
         setReady(true)
       })
-      .catch((e) => mounted && setError(e.message))
+      .catch((e) => mounted && setPersistentError(e.message))
     return () => {
       mounted = false
     }
-  }, [])
+  }, [setPersistentError])
 
   const detect = useCallback(
     (canvas: HTMLCanvasElement) => {
@@ -49,13 +61,14 @@ export function useAruco() {
         const found = detectMarkers(imageData)
         setDetections(found)
         setCalibration(computeCalibration(found, mapsRef.current, canvas.width, canvas.height))
+        clearError()
       } catch (e) {
-        setError((e as Error).message)
+        setPersistentError((e as Error).message)
       } finally {
         busyRef.current = false
       }
     },
-    [ready, supported],
+    [ready, supported, clearError, setPersistentError],
   )
 
   return { ready, supported, detections, calibration, error, detect }

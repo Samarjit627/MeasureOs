@@ -1,28 +1,28 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Pose as PoseClass, Results } from '@mediapipe/pose'
-import type { Camera as CameraClass } from '@mediapipe/camera_utils'
 import type { PoseFrame, PoseLandmark } from '../types'
 
 declare global {
   interface Window {
     Pose: typeof PoseClass
-    Camera: typeof CameraClass
   }
 }
 
-export function usePose(videoRef: React.RefObject<HTMLVideoElement | null>) {
+export function usePose(
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  active = true,
+  stream: MediaStream | null = null,
+) {
   const [pose, setPose] = useState<PoseFrame | null>(null)
   const [ready, setReady] = useState(false)
   const poseRef = useRef<PoseClass | null>(null)
-  const cameraRef = useRef<CameraClass | null>(null)
+  const processingRef = useRef(false)
 
-  const start = useCallback(async () => {
-    const video = videoRef.current
-    if (!video || typeof window.Pose === 'undefined' || typeof window.Camera === 'undefined') return
+  // Initialize / teardown MediaPipe Pose.
+  useEffect(() => {
+    if (!active || typeof window.Pose === 'undefined') return
 
     const Pose = window.Pose
-    const Camera = window.Camera
-
     const pose = new Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     })
@@ -52,29 +52,48 @@ export function usePose(videoRef: React.RefObject<HTMLVideoElement | null>) {
     })
     poseRef.current = pose
 
-    const camera = new Camera(video, {
-      onFrame: async () => {
-        await pose.send({ image: video })
-      },
-      width: 1280,
-      height: 720,
-    })
-    cameraRef.current = camera
-    await camera.start()
-  }, [videoRef])
+    return () => {
+      pose.close()
+      poseRef.current = null
+      setPose(null)
+      setReady(false)
+    }
+  }, [active])
 
-  const stop = useCallback(() => {
-    cameraRef.current?.stop()
-    poseRef.current?.close()
-    cameraRef.current = null
-    poseRef.current = null
-    setPose(null)
-    setReady(false)
-  }, [])
-
+  // Feed frames from the video element into MediaPipe Pose whenever the stream changes.
   useEffect(() => {
-    return () => stop()
-  }, [stop])
+    if (!active || !poseRef.current) return
+    const video = videoRef.current
+    if (!video) return
 
-  return { pose, ready, start, stop }
+    let intervalId = 0
+    const tick = () => {
+      if (!video || video.videoWidth === 0 || processingRef.current) return
+      processingRef.current = true
+      poseRef
+        .current!.send({ image: video })
+        .catch(() => {})
+        .finally(() => {
+          processingRef.current = false
+        })
+    }
+
+    const onPlay = () => {
+      setReady(true)
+      intervalId = window.setInterval(tick, 150)
+    }
+
+    video.addEventListener('play', onPlay)
+    if (!video.paused && video.videoWidth > 0) {
+      onPlay()
+    }
+
+    return () => {
+      video.removeEventListener('play', onPlay)
+      window.clearInterval(intervalId)
+      processingRef.current = false
+    }
+  }, [active, videoRef, stream])
+
+  return { pose, ready }
 }

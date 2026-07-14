@@ -11,7 +11,17 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const trackRef = useRef<MediaStreamTrack | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
+  const stop = useCallback(() => {
+    trackRef.current?.stop()
+    trackRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setState({ stream: null, error: null, videoReady: false })
+  }, [videoRef])
+
   const start = useCallback(async (constraints?: MediaStreamConstraints) => {
+    // Release the previous stream first. iOS/Android often refuse to switch
+    // cameras while an existing video track is still held by the page.
+    stop()
     try {
       const merged: MediaStreamConstraints = constraints ?? {
         video: {
@@ -36,13 +46,7 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
       // the error and resolving successfully either way.
       throw err
     }
-  }, [videoRef])
-
-  const stop = useCallback(() => {
-    trackRef.current?.stop()
-    if (videoRef.current) videoRef.current.srcObject = null
-    setState({ stream: null, error: null, videoReady: false })
-  }, [videoRef])
+  }, [videoRef, stop])
 
   useEffect(() => {
     const video = videoRef.current
