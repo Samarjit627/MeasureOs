@@ -49,6 +49,7 @@ export default function App() {
   const [gating, setGating] = useState<GatingStatus | null>(null)
   const [countdown, setCountdown] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -61,14 +62,16 @@ export default function App() {
 
   useEffect(() => {
     if (step === 'capture') {
-      start({ video: { facingMode: 'environment' } })
+      stop()
+      poseStop()
+      start({ video: { facingMode } })
         .then(() => poseStart())
         .catch((e) => setError(e.message))
     } else {
       stop()
       poseStop()
     }
-  }, [step, start, stop, poseStart, poseStop])
+  }, [step, facingMode, start, stop, poseStart, poseStop])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -346,13 +349,24 @@ export default function App() {
 
   return (
     <main className="relative h-screen w-full overflow-hidden bg-black text-white">
-      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
-      <canvas ref={overlayRef} className="absolute inset-0 h-full w-full object-cover" />
+      <div
+        className="absolute inset-0 h-full w-full"
+        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : undefined }}
+      >
+        <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
+        <canvas ref={overlayRef} className="absolute inset-0 h-full w-full object-cover" />
+      </div>
 
       <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{POSE_LABELS[currentPose]}</h2>
           <div className="text-sm">{photos.length + 1} / {POSE_ORDER.length}</div>
+          <button
+            onClick={() => setFacingMode((m) => (m === 'environment' ? 'user' : 'environment'))}
+            className="rounded border border-white/40 px-3 py-1 text-xs font-semibold"
+          >
+            Flip camera
+          </button>
         </div>
         <p className="text-sm text-slate-200 mt-1">{POSE_HINTS[currentPose]}</p>
       </div>

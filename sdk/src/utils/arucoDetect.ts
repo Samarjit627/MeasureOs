@@ -17,6 +17,26 @@ declare global {
 }
 
 let cvReady = false
+let scriptPromise: Promise<void> | null = null
+
+const CV_URL = 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0/dist/opencv.min.js'
+
+// Loaded via a dynamically-injected <script> (not a static tag in index.html)
+// so load failures (bad network, CDN blocked, ngrok hiccup) are caught
+// explicitly instead of surfacing as an opaque "timeout".
+function loadScript(): Promise<void> {
+  if (scriptPromise) return scriptPromise
+  scriptPromise = new Promise((resolve, reject) => {
+    if (window.cv) return resolve()
+    const el = document.createElement('script')
+    el.src = CV_URL
+    el.async = true
+    el.onload = () => resolve()
+    el.onerror = () => reject(new Error(`Failed to fetch OpenCV.js from CDN (${CV_URL})`))
+    document.head.appendChild(el)
+  })
+  return scriptPromise
+}
 
 function hookReady() {
   if (window.cv && !window.cv.onRuntimeInitialized) {
@@ -26,17 +46,26 @@ function hookReady() {
   }
 }
 
-export function waitForCv(timeout = 30000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now()
-    const check = () => {
-      hookReady()
-      if (cvReady) return resolve()
-      if (Date.now() - start > timeout) return reject(new Error('OpenCV load timeout'))
-      setTimeout(check, 150)
-    }
-    check()
-  })
+// The WASM runtime can take longer than a naive 30s on a slow/first-time
+// connection (this is an ~8MB download) - default generously, and report
+// which phase failed (network fetch vs runtime init) rather than one
+// generic "timeout" that gives no clue which half of the problem it is.
+export function waitForCv(timeout = 60000): Promise<void> {
+  return loadScript().then(
+    () =>
+      new Promise((resolve, reject) => {
+        const start = Date.now()
+        const check = () => {
+          hookReady()
+          if (cvReady) return resolve()
+          if (Date.now() - start > timeout) {
+            return reject(new Error('OpenCV.js loaded but its WASM runtime never signaled ready (timeout)'))
+          }
+          setTimeout(check, 150)
+        }
+        check()
+      }),
+  )
 }
 
 export function detectMarkers(imageData: ImageData): MarkerDetection[] {
