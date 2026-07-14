@@ -55,7 +55,7 @@ export default function App() {
   const { start, stop, captureFrame } = useCamera(videoRef)
   const { ready: poseReady, pose } = usePose(videoRef)
   const { ready: arucoReady, detections, calibration, error: arucoError, detect } = useAruco()
-  const { level: phoneLevel } = usePhoneLevel()
+  const { level: phoneLevel, permission: orientationPermission, requestPermission: requestOrientationPermission } = usePhoneLevel()
 
   const currentPhoto = useMemo(() => photos.find((p) => p.pose === currentPose), [photos, currentPose])
 
@@ -190,14 +190,17 @@ export default function App() {
     setPhotos((prev) => prev.filter((p) => p.pose !== pose))
   }, [])
 
-  const startCapture = useCallback(() => {
+  const startCapture = useCallback(async () => {
+    // must be called directly inside a user-gesture handler (the button tap)
+    // or iOS Safari will silently refuse to ever fire orientation events.
+    await requestOrientationPermission()
     setStep('capture')
     setCurrentPose('front')
     setPhotos([])
     setPoses({})
     setCalibrations({})
     setMeasurements({})
-  }, [])
+  }, [requestOrientationPermission])
 
   const exportSession = useCallback(() => {
     const session: CaptureSession = {
@@ -363,8 +366,14 @@ export default function App() {
         <div className="flex items-center justify-between text-xs text-slate-300">
           <span>Pose: {poseReady ? 'ready' : 'loading'}</span>
           <span>ArUco: {arucoReady ? `${detections.length} markers` : 'loading'}</span>
-          <span>Level: {phoneLevel ? 'ok' : 'tilt'}</span>
+          <span>Level: {orientationPermission === 'denied' ? 'blocked' : phoneLevel ? 'ok' : 'tilt'}</span>
         </div>
+        {orientationPermission === 'denied' && (
+          <div className="rounded bg-amber-600/90 px-3 py-2 text-xs">
+            Motion access was denied, so the level check can never pass. On iPhone: Settings → Safari →
+            Motion &amp; Orientation Access → allow, then reload this page.
+          </div>
+        )}
         <div className="flex gap-3">
           <button
             onClick={startCountdown}
