@@ -19,12 +19,19 @@ export function checkGating(
   const poseMatched = pose ? checkPoseMatch(pose, targetPose) : false
   const bodyCentered = pose ? checkBodyCentered(pose, videoWidth, videoHeight) : false
 
-  if (!markersVisible) messages.push('ArUco markers not detected')
+  // Markers are reported but NOT required to gate capture: the current
+  // OpenCV.js CDN build has no ArUco module in any published version (4.10
+  // through 5.0 all verified missing it), and calibration was never wired
+  // into the measurement math anyway - so blocking capture on a signal that
+  // doesn't feed anything downstream just prevents testing everything else.
+  // Re-add `markersVisible &&` to allReady once a working ArUco path exists
+  // (e.g. a pure-JS detector) and calibration is actually used for scaling.
+  if (!markersVisible) messages.push('ArUco markers not detected (not required yet)')
   if (!phoneLevel) messages.push('Phone is not level')
   if (!bodyCentered) messages.push('Body not centered')
   if (!poseMatched) messages.push(`Pose not matched (${POSE_NAMES[targetPose]})`)
 
-  const allReady = markersVisible && phoneLevel && bodyCentered && poseMatched
+  const allReady = phoneLevel && bodyCentered && poseMatched
   return {
     markersVisible,
     phoneLevel,

@@ -71,6 +71,15 @@ export function waitForCv(timeout = 60000): Promise<void> {
   )
 }
 
+// The @techstark/opencv-js CDN build has no ArUco module compiled in, in any
+// published version (verified 4.10 through 5.0 - none expose cv.Dictionary /
+// cv.detectMarkers). Check once so callers can stop trying instead of
+// throwing "undefined is not a constructor" on every ~500ms poll.
+export function arucoModuleAvailable(): boolean {
+  const cv = window.cv
+  return !!cv && typeof cv.Dictionary === 'function' && typeof cv.detectMarkers === 'function'
+}
+
 export function detectMarkers(imageData: ImageData): MarkerDetection[] {
   const cv = window.cv
   const src = new cv.Mat(imageData.height, imageData.width, cv.CV_8UC4)

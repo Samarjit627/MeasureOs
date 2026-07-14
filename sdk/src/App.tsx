@@ -55,7 +55,7 @@ export default function App() {
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const { start, stop, captureFrame } = useCamera(videoRef)
   const { ready: poseReady, pose, start: poseStart, stop: poseStop } = usePose(videoRef)
-  const { ready: arucoReady, detections, calibration, error: arucoError, detect } = useAruco()
+  const { ready: arucoReady, supported: arucoSupported, detections, calibration, error: arucoError, detect } = useAruco()
   const { level: phoneLevel, permission: orientationPermission, requestPermission: requestOrientationPermission } = usePhoneLevel()
 
   const currentPhoto = useMemo(() => photos.find((p) => p.pose === currentPose), [photos, currentPose])
@@ -64,7 +64,12 @@ export default function App() {
     if (step === 'capture') {
       stop()
       poseStop()
-      start({ video: { facingMode } })
+      // `exact` forces the requested camera rather than treating it as a
+      // mere hint (bare `facingMode: 'environment'` is only an "ideal"
+      // constraint and some browsers pick the front camera anyway); fall
+      // back to the non-exact form if a device can't satisfy it strictly.
+      start({ video: { facingMode: { exact: facingMode } } })
+        .catch(() => start({ video: { facingMode } }))
         .then(() => poseStart())
         .catch((e) => setError(e.message))
     } else {
@@ -382,7 +387,7 @@ export default function App() {
         )}
         <div className="flex items-center justify-between text-xs text-slate-300">
           <span>Pose: {poseReady ? 'ready' : 'loading'}</span>
-          <span>ArUco: {arucoReady ? `${detections.length} markers` : 'loading'}</span>
+          <span>ArUco: {!arucoSupported ? 'n/a' : arucoReady ? `${detections.length} markers` : 'loading'}</span>
           <span>Level: {orientationPermission === 'denied' ? 'blocked' : phoneLevel ? 'ok' : 'tilt'}</span>
         </div>
         {orientationPermission === 'denied' && (
