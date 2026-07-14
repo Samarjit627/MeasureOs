@@ -6,6 +6,7 @@ import { useAruco } from './hooks/useAruco'
 import { usePhoneLevel } from './hooks/usePhoneLevel'
 import { checkGating } from './utils/poseGate'
 import { computeMeasurements } from './utils/measurements'
+import { buildBodyGuide } from './utils/bodyGuide'
 
 const POSE_ORDER: PhotoPose[] = ['front', 'left', 'right', 'back']
 
@@ -97,10 +98,10 @@ export default function App() {
         }
     setGating(status)
 
-    drawGuide(ctx, currentPose, overlay.width, overlay.height)
+    drawGuide(ctx, currentPose, answers, status.poseMatched, overlay.width, overlay.height)
     if (pose) drawSkeleton(ctx, pose, overlay.width, overlay.height)
     if (detections.length) drawMarkers(ctx, detections)
-  }, [pose, detections, phoneLevel, currentPose])
+  }, [pose, detections, phoneLevel, currentPose, answers])
 
   useEffect(() => {
     if (calibration && currentPose) {
@@ -265,6 +266,21 @@ export default function App() {
               </select>
             </label>
             <label className="block">
+              <span className="text-sm font-medium">Body shape</span>
+              <select
+                className="mt-1 w-full rounded border border-slate-300 p-2"
+                value={answers.bodyShape ?? ''}
+                onChange={(e) => setAnswers((a) => ({ ...a, bodyShape: e.target.value as UserAnswers['bodyShape'] }))}
+              >
+                <option value="">Select</option>
+                <option value="slim">Slim</option>
+                <option value="average">Average</option>
+                <option value="athletic">Athletic</option>
+                <option value="heavy">Heavy</option>
+              </select>
+              <span className="text-xs text-slate-400">Used to size the on-screen alignment outline.</span>
+            </label>
+            <label className="block">
               <span className="text-sm font-medium">Fit preference</span>
               <select
                 className="mt-1 w-full rounded border border-slate-300 p-2"
@@ -411,29 +427,69 @@ function drawMarkers(ctx: CanvasRenderingContext2D, markers: { id: number; corne
   }
 }
 
-function drawGuide(ctx: CanvasRenderingContext2D, pose: PhotoPose, width: number, height: number) {
+function drawGuide(
+  ctx: CanvasRenderingContext2D,
+  pose: PhotoPose,
+  answers: UserAnswers,
+  matched: boolean,
+  width: number,
+  height: number,
+) {
   ctx.save()
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+  const color = matched ? 'rgba(74,222,128,0.9)' : 'rgba(255,255,255,0.55)'
+  ctx.strokeStyle = color
+  ctx.fillStyle = matched ? 'rgba(74,222,128,0.08)' : 'rgba(255,255,255,0.05)'
   ctx.lineWidth = 3
-  ctx.setLineDash([10, 10])
-  const cx = width / 2
-  const cy = height / 2
-  // simple body silhouette box
-  const w = width * 0.35
-  const h = height * 0.55
-  const top = cy - h / 2
-  ctx.strokeRect(cx - w / 2, top, w, h)
+  ctx.setLineDash([10, 8])
 
-  // Head circle
-  const headR = h * 0.09
+  const cx = width / 2
+  const h = height * 0.62
+  const top = height * 0.16
+  const halfW = width * 0.19 // pixels per unit of guide x (1.0 = shoulder half-width ref)
+  const guide = buildBodyGuide(pose, answers)
+  const px = (p: { x: number; y: number }) => ({ x: cx + p.x * halfW, y: top + p.y * h })
+
+  if (guide.side) {
+    // side/profile pose: asymmetric outline, back edge + front (depth) edge
+    const pts = [...guide.side.back, ...[...guide.side.front].reverse()]
+    ctx.beginPath()
+    pts.forEach((p, i) => {
+      const s = px(p)
+      if (i === 0) ctx.moveTo(s.x, s.y)
+      else ctx.lineTo(s.x, s.y)
+    })
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  } else {
+    // front/back pose: mirrored torso+legs outline
+    const right = guide.torso.map(px)
+    const left = [...guide.torso].reverse().map((p) => px({ x: -p.x, y: p.y }))
+    ctx.beginPath()
+    right.forEach((s, i) => (i === 0 ? ctx.moveTo(s.x, s.y) : ctx.lineTo(s.x, s.y)))
+    left.forEach((s) => ctx.lineTo(s.x, s.y))
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    // arms, offset outward with a visible gap from the torso
+    ctx.setLineDash([6, 6])
+    for (const sign of [-1, 1] as const) {
+      const arm = guide.leftArm.map((p) => px({ x: sign * p.x, y: p.y }))
+      ctx.beginPath()
+      arm.forEach((s, i) => (i === 0 ? ctx.moveTo(s.x, s.y) : ctx.lineTo(s.x, s.y)))
+      ctx.stroke()
+    }
+    ctx.setLineDash([10, 8])
+  }
+
+  // head
+  const headTop = px({ x: 0, y: 0 })
+  const headR = h * 0.085
   ctx.beginPath()
-  ctx.arc(cx, top - headR * 0.5, headR, 0, Math.PI * 2)
+  ctx.arc(headTop.x, headTop.y - headR * 1.05, headR, 0, Math.PI * 2)
+  ctx.fill()
   ctx.stroke()
 
-  // Side view hint
-  if (pose === 'left' || pose === 'right') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-    ctx.strokeRect(cx - w / 6, top, w / 3, h)
-  }
   ctx.restore()
 }

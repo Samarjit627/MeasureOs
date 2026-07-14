@@ -3,9 +3,7 @@
     "width_cm": 121.92,
     "depth_cm": 91.44,
     "unit": "cm",
-    "origin": "rear-left corner, platform top surface",
-    "x_axis": "right",
-    "y_axis": "front (toward camera)",
+    "coord_origin": "rear-left corner, platform top; x->right, y->front(camera); marker x_cm,y_cm = top-left corner",
     "standing_heel_y_cm": 30.0,
     "standing_circle_center_y_cm": 44.0
   },
@@ -19,7 +17,7 @@
     },
     {
       "id": 31,
-      "x_cm": 118.11,
+      "x_cm": 106.11,
       "y_cm": 3.81,
       "size_cm": 12.0,
       "corner": "frame"
@@ -27,14 +25,14 @@
     {
       "id": 32,
       "x_cm": 3.81,
-      "y_cm": 87.63,
+      "y_cm": 75.63,
       "size_cm": 12.0,
       "corner": "frame"
     },
     {
       "id": 33,
-      "x_cm": 118.11,
-      "y_cm": 87.63,
+      "x_cm": 106.11,
+      "y_cm": 75.63,
       "size_cm": 12.0,
       "corner": "frame"
     }
