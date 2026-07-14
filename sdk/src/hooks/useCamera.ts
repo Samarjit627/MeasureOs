@@ -30,6 +30,11 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
       setState({ stream, error: null, videoReady: false })
     } catch (err) {
       setState({ stream: null, error: (err as Error).message, videoReady: false })
+      // Re-throw: callers (App.tsx) fall back to a looser constraint on
+      // failure (e.g. `exact: 'environment'` -> plain 'environment'), which
+      // only works if this promise actually rejects instead of swallowing
+      // the error and resolving successfully either way.
+      throw err
     }
   }, [videoRef])
 
