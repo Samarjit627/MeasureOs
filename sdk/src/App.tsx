@@ -53,7 +53,7 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const { start, stop, captureFrame } = useCamera(videoRef)
-  const { ready: poseReady, pose } = usePose(videoRef)
+  const { ready: poseReady, pose, start: poseStart, stop: poseStop } = usePose(videoRef)
   const { ready: arucoReady, detections, calibration, error: arucoError, detect } = useAruco()
   const { level: phoneLevel, permission: orientationPermission, requestPermission: requestOrientationPermission } = usePhoneLevel()
 
@@ -61,11 +61,14 @@ export default function App() {
 
   useEffect(() => {
     if (step === 'capture') {
-      start({ video: { facingMode: 'environment' } }).catch((e) => setError(e.message))
+      start({ video: { facingMode: 'environment' } })
+        .then(() => poseStart())
+        .catch((e) => setError(e.message))
     } else {
       stop()
+      poseStop()
     }
-  }, [step, start, stop])
+  }, [step, start, stop, poseStart, poseStop])
 
   useEffect(() => {
     const id = setInterval(() => {

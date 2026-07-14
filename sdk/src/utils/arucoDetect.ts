@@ -1,29 +1,46 @@
 import type { MarkerDetection, CameraCalibration } from '../types'
-import type { MarkerMap } from '../utils/markers'
+import type { MarkerMap } from './markers'
 
-// @ts-expect-error global import for OpenCV.js loaded from CDN
-importScripts('https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0/dist/opencv.min.js')
+// Runs OpenCV.js directly on the main thread (loaded via a classic <script>
+// tag in index.html - see CLAUDE.md). A Web Worker version previously called
+// importScripts() to load it, but Vite's dev server always instantiates
+// `?worker` imports as ES-module workers, and importScripts() throws
+// synchronously in that context ("importScripts cannot be used if worker type
+// is 'module'") - so the worker died before ever processing a frame and
+// ArUco detection silently never came online. Running on the main thread
+// sidesteps that dev/build inconsistency entirely.
 
-declare const cv: any
-
-let cvReady = false
-cv.onRuntimeInitialized = () => {
-  cvReady = true
+declare global {
+  interface Window {
+    cv: any
+  }
 }
 
-function waitForCv(timeout = 30000): Promise<void> {
+let cvReady = false
+
+function hookReady() {
+  if (window.cv && !window.cv.onRuntimeInitialized) {
+    window.cv.onRuntimeInitialized = () => {
+      cvReady = true
+    }
+  }
+}
+
+export function waitForCv(timeout = 30000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now()
     const check = () => {
+      hookReady()
       if (cvReady) return resolve()
       if (Date.now() - start > timeout) return reject(new Error('OpenCV load timeout'))
-      setTimeout(check, 100)
+      setTimeout(check, 150)
     }
     check()
   })
 }
 
-function detectMarkers(imageData: ImageData): MarkerDetection[] {
+export function detectMarkers(imageData: ImageData): MarkerDetection[] {
+  const cv = window.cv
   const src = new cv.Mat(imageData.height, imageData.width, cv.CV_8UC4)
   src.data.set(imageData.data)
   const gray = new cv.Mat()
@@ -67,6 +84,7 @@ function detectMarkers(imageData: ImageData): MarkerDetection[] {
 }
 
 function matFromPoints(points: number[][]): any {
+  const cv = window.cv
   const mat = new cv.Mat(points.length, points[0].length, cv.CV_64F)
   for (let i = 0; i < points.length; i++) {
     for (let j = 0; j < points[i].length; j++) {
@@ -76,7 +94,10 @@ function matFromPoints(points: number[][]): any {
   return mat
 }
 
-function buildKnownMarkers(detections: MarkerDetection[], maps: { backdrop: MarkerMap; platform: MarkerMap }) {
+function buildObjectImagePoints(
+  detections: MarkerDetection[],
+  maps: { backdrop: MarkerMap; platform: MarkerMap },
+) {
   const byId = (map: MarkerMap) => {
     const dict: Record<number, MarkerMap['markers'][number]> = {}
     for (const m of map.markers) dict[m.id] = m
@@ -117,6 +138,7 @@ function refineFocalLength(
   width: number,
   height: number,
 ): CameraCalibration | null {
+  const cv = window.cv
   const cx = width / 2
   const cy = height / 2
   const distCoeffs = new cv.Mat()
@@ -130,7 +152,6 @@ function refineFocalLength(
   let bestRvec = rvec
   let bestTvec = tvec
 
-  // Coarse grid search over focal length, then solvePnP
   for (let f = bestF * 0.4; f <= bestF * 1.6; f += bestF * 0.1) {
     const k = matFromPoints([
       [f, 0, cx],
@@ -178,21 +199,14 @@ function refineFocalLength(
   }
 }
 
-self.onmessage = async (e: MessageEvent<{ imageData: ImageData; maps?: { backdrop: MarkerMap; platform: MarkerMap } }>) => {
-  try {
-    await waitForCv()
-    const detections = detectMarkers(e.data.imageData)
-    let calibration: CameraCalibration | null = null
-    if (e.data.maps && detections.length >= 4) {
-      const { objectPoints, imagePoints } = buildKnownMarkers(detections, e.data.maps)
-      if (objectPoints.length >= 16) {
-        calibration = refineFocalLength(objectPoints, imagePoints, e.data.imageData.width, e.data.imageData.height)
-      }
-    }
-    self.postMessage({ type: 'result', detections, calibration })
-  } catch (err) {
-    self.postMessage({ type: 'error', error: (err as Error).message })
-  }
+export function computeCalibration(
+  detections: MarkerDetection[],
+  maps: { backdrop: MarkerMap; platform: MarkerMap } | null,
+  width: number,
+  height: number,
+): CameraCalibration | null {
+  if (!maps || detections.length < 4) return null
+  const { objectPoints, imagePoints } = buildObjectImagePoints(detections, maps)
+  if (objectPoints.length < 16) return null
+  return refineFocalLength(objectPoints, imagePoints, width, height)
 }
-
-export {}
