@@ -395,13 +395,13 @@ export default function App() {
         <p className="text-sm text-slate-200 mt-1">{POSE_HINTS[currentPose]}</p>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent space-y-3">
+      <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-gradient-to-t from-black/80 to-transparent space-y-3">
         {gating && !gating.allReady && (
           <div className="rounded bg-red-600/90 px-3 py-2 text-sm">
             {gating.messages.join(' · ')}
           </div>
         )}
-        {gating?.allReady && countdown > 0 && (
+        {countdown > 0 && (
           <div className="rounded bg-green-600/90 px-3 py-2 text-center text-2xl font-bold">{countdown}</div>
         )}
         <div className="flex items-center justify-between text-xs text-slate-300">
@@ -418,10 +418,12 @@ export default function App() {
         <div className="flex gap-3">
           <button
             onClick={startCountdown}
-            disabled={!gating?.allReady || countdown > 0}
-            className="flex-1 rounded bg-indigo-600 py-3 font-semibold disabled:bg-slate-600 disabled:opacity-50"
+            disabled={!stream || countdown > 0}
+            className={`flex-1 rounded py-3 font-semibold disabled:bg-slate-600 disabled:opacity-50 ${
+              gating?.allReady ? 'bg-indigo-600' : 'bg-amber-600'
+            }`}
           >
-            {currentPhoto ? 'Retake' : 'Capture'}
+            {!stream ? 'Camera loading…' : currentPhoto ? 'Retake' : 'Capture'}
           </button>
           <button onClick={() => { stop(); setStep('review') }} className="rounded border border-white/30 px-4 py-3 font-semibold">Done</button>
         </div>
