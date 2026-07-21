@@ -54,8 +54,8 @@ export default function App() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
-  const { start, stop, captureFrame } = useCamera(videoRef)
-  const { ready: poseReady, pose, start: poseStart, stop: poseStop } = usePose(videoRef)
+  const { stream, start, stop, captureFrame } = useCamera(videoRef)
+  const { ready: poseReady, pose } = usePose(videoRef, step === 'capture', stream)
   const { ready: arucoReady, supported: arucoSupported, detections, calibration, error: arucoError, detect } = useAruco()
   const { level: phoneLevel, permission: orientationPermission, requestPermission: requestOrientationPermission } = usePhoneLevel()
 
@@ -63,21 +63,17 @@ export default function App() {
 
   useEffect(() => {
     if (step === 'capture') {
-      stop()
-      poseStop()
       // `exact` forces the requested camera rather than treating it as a
       // mere hint (bare `facingMode: 'environment'` is only an "ideal"
       // constraint and some browsers pick the front camera anyway); fall
       // back to the non-exact form if a device can't satisfy it strictly.
       start({ video: { facingMode: { exact: facingMode } } })
         .catch(() => start({ video: { facingMode } }))
-        .then(() => poseStart())
         .catch((e) => setError(e.message))
     } else {
       stop()
-      poseStop()
     }
-  }, [step, facingMode, start, stop, poseStart, poseStop])
+  }, [step, facingMode, start, stop])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -91,11 +87,34 @@ export default function App() {
     const video = videoRef.current
     const overlay = overlayRef.current
     if (!video || !overlay || !video.videoWidth) return
-    overlay.width = video.videoWidth
-    overlay.height = video.videoHeight
+
+    // Draw into the displayed pixel size so 1 canvas pixel == 1 screen pixel.
+    overlay.width = overlay.clientWidth || video.videoWidth
+    overlay.height = overlay.clientHeight || video.videoHeight
     const ctx = overlay.getContext('2d')
     if (!ctx) return
     ctx.clearRect(0, 0, overlay.width, overlay.height)
+
+    // Video is rendered with object-cover, so it is cropped. Compute the
+    // transform from normalized video coordinates to overlay screen pixels.
+    const videoAspect = video.videoWidth / video.videoHeight
+    const overlayAspect = overlay.width / overlay.height
+    let scale = 1
+    let offsetX = 0
+    let offsetY = 0
+    if (videoAspect > overlayAspect) {
+      // video wider than screen: crop left/right
+      scale = overlay.height / video.videoHeight
+      offsetX = (overlay.width - video.videoWidth * scale) / 2
+    } else {
+      // video taller than screen: crop top/bottom
+      scale = overlay.width / video.videoWidth
+      offsetY = (overlay.height - video.videoHeight * scale) / 2
+    }
+    const toScreen = (p: { x: number; y: number }) => ({
+      x: offsetX + p.x * video.videoWidth * scale,
+      y: offsetY + p.y * video.videoHeight * scale,
+    })
 
     const markersVisible = detections.length >= 4
     const status = pose
@@ -111,8 +130,8 @@ export default function App() {
     setGating(status)
 
     drawGuide(ctx, currentPose, answers, status.poseMatched, overlay.width, overlay.height)
-    if (pose) drawSkeleton(ctx, pose, overlay.width, overlay.height)
-    if (detections.length) drawMarkers(ctx, detections)
+    if (pose) drawSkeleton(ctx, pose, toScreen)
+    if (detections.length) drawMarkers(ctx, detections, toScreen)
   }, [pose, detections, phoneLevel, currentPose, answers])
 
   useEffect(() => {
@@ -397,13 +416,13 @@ export default function App() {
         <p className="text-sm text-slate-200 mt-1">{POSE_HINTS[currentPose]}</p>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent space-y-3">
+      <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-gradient-to-t from-black/80 to-transparent space-y-3">
         {gating && !gating.allReady && (
           <div className="rounded bg-red-600/90 px-3 py-2 text-sm">
             {gating.messages.join(' · ')}
           </div>
         )}
-        {gating?.allReady && countdown > 0 && (
+        {countdown > 0 && (
           <div className="rounded bg-green-600/90 px-3 py-2 text-center text-2xl font-bold">{countdown}</div>
         )}
         <div className="flex items-center justify-between text-xs text-slate-300">
@@ -420,10 +439,12 @@ export default function App() {
         <div className="flex gap-3">
           <button
             onClick={startCountdown}
-            disabled={!gating?.allReady || countdown > 0}
-            className="flex-1 rounded bg-indigo-600 py-3 font-semibold disabled:bg-slate-600 disabled:opacity-50"
+            disabled={!stream || countdown > 0}
+            className={`flex-1 rounded py-3 font-semibold disabled:bg-slate-600 disabled:opacity-50 ${
+              gating?.allReady ? 'bg-indigo-600' : 'bg-amber-600'
+            }`}
           >
-            {currentPhoto ? 'Retake' : 'Capture'}
+            {!stream ? 'Camera loading…' : currentPhoto ? 'Retake' : 'Capture'}
           </button>
           <button onClick={() => { stop(); setStep('review') }} className="rounded border border-white/30 px-4 py-3 font-semibold">Done</button>
         </div>
@@ -436,12 +457,13 @@ export default function App() {
 function drawSkeleton(
   ctx: CanvasRenderingContext2D,
   pose: PoseFrame,
-  width: number,
-  height: number,
+  toScreen: (p: { x: number; y: number }) => { x: number; y: number },
 ) {
   ctx.strokeStyle = '#22d3ee'
-  ctx.lineWidth = 3
-  const toScreen = (p: { x: number; y: number }) => ({ x: p.x * width, y: p.y * height })
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'
+  ctx.shadowBlur = 4
   const pairs = [
     [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
     [11, 23], [12, 24], [23, 24],
@@ -458,25 +480,34 @@ function drawSkeleton(
     ctx.lineTo(sb.x, sb.y)
     ctx.stroke()
   }
+  ctx.shadowBlur = 0
 }
 
-function drawMarkers(ctx: CanvasRenderingContext2D, markers: { id: number; corners: { x: number; y: number }[] }[]) {
+function drawMarkers(
+  ctx: CanvasRenderingContext2D,
+  markers: { id: number; corners: { x: number; y: number }[] }[],
+  toScreen: (p: { x: number; y: number }) => { x: number; y: number },
+) {
   ctx.strokeStyle = '#facc15'
-  ctx.lineWidth = 2
+  ctx.lineWidth = 3
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'
+  ctx.shadowBlur = 3
   for (const m of markers) {
+    const corners = m.corners.map(toScreen)
     ctx.beginPath()
-    ctx.moveTo(m.corners[0].x, m.corners[0].y)
-    for (let i = 1; i < m.corners.length; i++) {
-      ctx.lineTo(m.corners[i].x, m.corners[i].y)
+    ctx.moveTo(corners[0].x, corners[0].y)
+    for (let i = 1; i < corners.length; i++) {
+      ctx.lineTo(corners[i].x, corners[i].y)
     }
     ctx.closePath()
     ctx.stroke()
     ctx.fillStyle = '#facc15'
-    const cx = m.corners.reduce((s, c) => s + c.x, 0) / 4
-    const cy = m.corners.reduce((s, c) => s + c.y, 0) / 4
-    ctx.font = '14px sans-serif'
+    const cx = corners.reduce((s, c) => s + c.x, 0) / 4
+    const cy = corners.reduce((s, c) => s + c.y, 0) / 4
+    ctx.font = 'bold 16px sans-serif'
     ctx.fillText(String(m.id), cx, cy)
   }
+  ctx.shadowBlur = 0
 }
 
 function drawGuide(

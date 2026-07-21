@@ -71,29 +71,48 @@ export function waitForCv(timeout = 60000): Promise<void> {
   )
 }
 
-// The @techstark/opencv-js CDN build has no ArUco module compiled in, in any
-// published version (verified 4.10 through 5.0 - none expose cv.Dictionary /
-// cv.detectMarkers). Check once so callers can stop trying instead of
-// throwing "undefined is not a constructor" on every ~500ms poll.
 export function arucoModuleAvailable(): boolean {
   const cv = window.cv
-  return !!cv && typeof cv.Dictionary === 'function' && typeof cv.detectMarkers === 'function'
+  if (!cv) return false
+  // Newer contrib builds expose cv.aruco; older builds put it at the top level.
+  return (
+    typeof (cv.aruco?.Dictionary ?? cv.Dictionary) === 'function' &&
+    typeof (cv.aruco?.detectMarkers ?? cv.detectMarkers) === 'function'
+  )
+}
+
+function getArucoApi(cv: any) {
+  if (cv.aruco) {
+    return {
+      Dictionary: cv.aruco.Dictionary.bind(cv.aruco),
+      DetectorParameters: cv.aruco.DetectorParameters.bind(cv.aruco),
+      detectMarkers: cv.aruco.detectMarkers.bind(cv.aruco),
+      DICT_4X4_50: cv.aruco.DICT_4X4_50,
+    }
+  }
+  return {
+    Dictionary: cv.Dictionary.bind(cv),
+    DetectorParameters: cv.DetectorParameters.bind(cv),
+    detectMarkers: cv.detectMarkers.bind(cv),
+    DICT_4X4_50: cv.ARUCO_DICT_4X4_50,
+  }
 }
 
 export function detectMarkers(imageData: ImageData): MarkerDetection[] {
   const cv = window.cv
+  const api = getArucoApi(cv)
   const src = new cv.Mat(imageData.height, imageData.width, cv.CV_8UC4)
   src.data.set(imageData.data)
   const gray = new cv.Mat()
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
 
-  const dict = new cv.Dictionary(cv.ARUCO_DICT_4X4_50)
-  const param = new cv.DetectorParameters()
+  const dict = new api.Dictionary(api.DICT_4X4_50)
+  const param = new api.DetectorParameters()
   const corners = new cv.MatVector()
   const ids = new cv.Mat()
   const rejected = new cv.MatVector()
 
-  cv.detectMarkers(gray, dict, corners, ids, param, rejected)
+  api.detectMarkers(gray, dict, corners, ids, param, rejected)
 
   const out: MarkerDetection[] = []
   for (let i = 0; i < ids.rows; i++) {
