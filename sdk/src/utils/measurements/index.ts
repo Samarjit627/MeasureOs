@@ -29,6 +29,14 @@ function computeScaleFactor(front: PoseFrame | undefined, heightCm?: number): nu
   return heightCm / (bodySpan / 0.9)
 }
 
+// Points computed straight from two real, well-tracked joints (a direct
+// Euclidean distance) - these are the only ones honestly "medium" so far.
+// Everything else below is either a rough population ratio or has no
+// individual signal at all, and must say so rather than claim a confidence
+// it hasn't earned. See anthropometricRatios.ts for why chest/waist/neck/
+// bicep/wrist can't be measured directly from MediaPipe's 33 joints.
+const JOINT_DERIVED = new Set(['height', 'backLength', 'sleeveLength', 'armLength', 'inseam', 'shoulderWidth'])
+
 export function computeMeasurements(input: MeasurementInput): Record<string, MeasurementResult> {
   const { photos, poses, userAnswers } = input
   if (photos.length < 4) return {}
@@ -40,7 +48,7 @@ export function computeMeasurements(input: MeasurementInput): Record<string, Mea
 
   const scaleFactor = computeScaleFactor(front, userAnswers.height)
   const lengths = computeLengths(front, scaleFactor)
-  const widths = computeWidthsAndDepths({ front, left, right, back }, scaleFactor)
+  const widths = computeWidthsAndDepths({ front, left, right, back }, scaleFactor, userAnswers)
   const circumferences = computeCircumferences(widths, userAnswers)
 
   const all: BodyMeasurements = { ...lengths, ...widths, ...circumferences }
@@ -48,11 +56,12 @@ export function computeMeasurements(input: MeasurementInput): Record<string, Mea
   const out: Record<string, MeasurementResult> = {}
   for (const [key, value] of Object.entries(all)) {
     if (value !== undefined && !Number.isNaN(value)) {
+      const jointDerived = JOINT_DERIVED.has(key)
       out[key] = {
         value: Math.round(value * 10) / 10,
         unit: 'cm',
-        confidence: 'medium',
-        method: 'heuristic',
+        confidence: jointDerived ? 'medium' : 'low',
+        method: jointDerived ? 'landmark' : 'population-ratio',
       }
     }
   }

@@ -1,5 +1,10 @@
 import type { UserAnswers, BodyMeasurements } from '../../types'
 import type { WidthsAndDepths } from './widths'
+import {
+  neckToShoulderRatio,
+  bicepToShoulderRatio,
+  wristToShoulderRatio,
+} from './anthropometricRatios'
 
 export interface Circumferences extends Partial<BodyMeasurements> {
   chestCircumference?: number
@@ -10,7 +15,7 @@ export interface Circumferences extends Partial<BodyMeasurements> {
   wristCircumference?: number
 }
 
-export function computeCircumferences(widths: WidthsAndDepths, _userAnswers: UserAnswers): Circumferences {
+export function computeCircumferences(widths: WidthsAndDepths, userAnswers: UserAnswers): Circumferences {
   const out: Circumferences = {}
 
   // Ellipse circumference approximation: Ramanujan 1
@@ -32,16 +37,14 @@ export function computeCircumferences(widths: WidthsAndDepths, _userAnswers: Use
     out.hipCircumference = ellipseCircumference(widths.hipWidth, widths.hipDepth)
   }
 
-  // Neck: heuristic ratio of neck circumference to shoulder width.
+  // Neck/bicep/wrist: population-ratio estimates anchored to shoulder width
+  // (see anthropometricRatios.ts). Previously these used undocumented
+  // constants (0.35 / 0.25 / 0.12) that produced an 18cm neck and a 6cm
+  // wrist - anatomically impossible. Still not individually measured.
   if (widths.shoulderWidth) {
-    out.neckCircumference = widths.shoulderWidth * 0.35
-  }
-
-  // Bicep and wrist: rough ratios of arm segment length, can be refined later with anthropometric data.
-  // Placeholder: bicep ~0.25 of shoulder-to-wrist span, wrist ~0.12.
-  if (widths.shoulderWidth) {
-    out.bicepCircumference = widths.shoulderWidth * 0.25
-    out.wristCircumference = widths.shoulderWidth * 0.12
+    out.neckCircumference = widths.shoulderWidth * neckToShoulderRatio(userAnswers)
+    out.bicepCircumference = widths.shoulderWidth * bicepToShoulderRatio(userAnswers)
+    out.wristCircumference = widths.shoulderWidth * wristToShoulderRatio(userAnswers)
   }
 
   return out

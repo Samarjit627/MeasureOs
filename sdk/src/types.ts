@@ -80,6 +80,10 @@ export interface CaptureSession {
   calibrations: Partial<Record<PhotoPose, CameraCalibration>>
   poses: Partial<Record<PhotoPose, PoseFrame>>
   measurements: Record<string, MeasurementResult>
+  // Real tape measurements entered by whoever ran the test, keyed the same
+  // as `measurements`. This is the ground-truth flywheel: every session with
+  // both sides filled in becomes one row of the AI-vs-tape comparison table.
+  groundTruth?: Record<string, number>
 }
 
 export interface UserAnswers {

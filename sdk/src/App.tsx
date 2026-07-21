@@ -50,6 +50,7 @@ export default function App() {
   const [countdown, setCountdown] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
+  const [groundTruth, setGroundTruth] = useState<Record<string, number>>({})
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -211,6 +212,7 @@ export default function App() {
     setPoses({})
     setCalibrations({})
     setMeasurements({})
+    setGroundTruth({})
   }, [requestOrientationPermission])
 
   const exportSession = useCallback(() => {
@@ -222,6 +224,7 @@ export default function App() {
       calibrations,
       poses,
       measurements,
+      groundTruth,
     }
     downloadJson(`measureos-session-${session.id}.json`, session)
     photos.forEach((p) => {
@@ -230,7 +233,7 @@ export default function App() {
       a.download = `measureos-${p.pose}-${p.timestamp}.jpg`
       a.click()
     })
-  }, [answers, photos, poses, calibrations, measurements])
+  }, [answers, photos, poses, calibrations, measurements, groundTruth])
 
   if (step === 'intro') {
     return (
@@ -320,12 +323,30 @@ export default function App() {
       <main className="min-h-screen bg-slate-50 text-slate-900 p-6">
         <div className="max-w-md mx-auto space-y-6">
           <h1 className="text-2xl font-bold">Measurements</h1>
+          <p className="text-xs text-slate-500 -mt-4">
+            Enter the real tape measurement next to any value to build the accuracy record. This is what the whole
+            correction strategy depends on - it's the ground truth, not the app's own guess.
+          </p>
           <div className="grid grid-cols-2 gap-3">
             {Object.entries(measurements).map(([key, m]) => (
-              <div key={key} className="rounded bg-white p-3 shadow">
+              <div key={key} className="rounded bg-white p-3 shadow space-y-1">
                 <p className="text-xs uppercase text-slate-500">{key}</p>
                 <p className="text-lg font-semibold">{m.value} {m.unit}</p>
-                <p className="text-xs text-slate-400 capitalize">{m.confidence}</p>
+                <p className={`text-xs capitalize ${m.confidence === 'low' ? 'text-amber-600' : 'text-slate-400'}`}>
+                  {m.confidence}
+                </p>
+                <label className="block pt-1">
+                  <span className="text-[10px] text-slate-400">Tape (cm)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    className="mt-0.5 w-full rounded border border-slate-300 p-1 text-sm"
+                    value={groundTruth[key] ?? ''}
+                    onChange={(e) =>
+                      setGroundTruth((g) => ({ ...g, [key]: parseFloat(e.target.value) }))
+                    }
+                  />
+                </label>
               </div>
             ))}
           </div>
